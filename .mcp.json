@@ -1,0 +1,38 @@
+{
+  "_README": [
+    "Auto-registered MCP servers for the work-dashboard plugin.",
+    "Granola + Gmail + Drive work out of the box (OAuth on first use).",
+    "Calendar and Slack need per-user credentials — run /dashboard-setup for guided setup,",
+    "or manually set GOOGLE_OAUTH_CREDENTIALS (calendar) + SLACK_BOT_TOKEN / SLACK_TEAM_ID (slack) in your environment.",
+    "Until credentials are set, those two MCPs will fail to start — the dashboard still renders, those sections just show 'source unavailable'."
+  ],
+  "mcpServers": {
+    "calendar": {
+      "command": "npx",
+      "args": ["-y", "google-calendar-mcp@latest"],
+      "env": {
+        "GOOGLE_OAUTH_CREDENTIALS": "${GOOGLE_OAUTH_CREDENTIALS:-}"
+      }
+    },
+    "gmail": {
+      "command": "npx",
+      "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"]
+    },
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN:-}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID:-}"
+      }
+    },
+    "drive": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gdrive"]
+    },
+    "granola": {
+      "command": "npx",
+      "args": ["-y", "granola-mcp"]
+    }
+  }
+}

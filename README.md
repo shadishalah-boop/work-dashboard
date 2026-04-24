@@ -13,8 +13,10 @@ All user-specific content (your name, manager, team roster, OKRs, pins, Slack wo
 ```
 work-dashboard/
 ├── .claude-plugin/plugin.json        ← plugin manifest
-├── .mcp.json.example                 ← MCP server config template
-├── skills/dashboard/SKILL.md         ← /dashboard orchestrator
+├── .mcp.json                         ← auto-registers the 5 MCP servers on install
+├── skills/
+│   ├── dashboard/SKILL.md            ← /dashboard  (refresh orchestrator)
+│   └── dashboard-setup/SKILL.md      ← /dashboard-setup  (one-time onboarding)
 ├── agents/                           ← 6 data agents
 │   ├── dashboard-calendar.md
 │   ├── dashboard-gmail.md
@@ -35,89 +37,84 @@ work-dashboard/
 
 ## Prerequisites
 
-The plugin calls tools from 5 MCP servers. You need to connect each one under these **exact names** (the agents reference them by name):
+The plugin's `.mcp.json` auto-registers 5 MCP servers on install. Each needs per-user auth:
 
-| Server name | What it provides | Examples |
-|---|---|---|
-| `calendar` | Google Calendar read/suggest-time | [google-calendar-mcp](https://github.com/nspady/google-calendar-mcp) |
-| `gmail` | Gmail search + thread read | [Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) |
-| `slack` | Slack search + read channel/thread | [@modelcontextprotocol/server-slack](https://www.npmjs.com/package/@modelcontextprotocol/server-slack) |
-| `drive` | Google Drive list/search | [@modelcontextprotocol/server-gdrive](https://www.npmjs.com/package/@modelcontextprotocol/server-gdrive) |
-| `granola` | Granola meeting notes + transcripts | [granola-mcp](https://github.com/iamwavecut/granola-mcp) |
+| Server | What it provides | Auth needed | Works out of the box? |
+|---|---|---|---|
+| `calendar` | Google Calendar read + suggest-time | Google Cloud OAuth `credentials.json` | No — set `GOOGLE_OAUTH_CREDENTIALS` env var |
+| `gmail`    | Gmail search + thread read | Google OAuth (browser prompt on first use) | Yes |
+| `slack`    | Slack search + read channel/thread | Bot token from `api.slack.com/apps` | No — set `SLACK_BOT_TOKEN` + `SLACK_TEAM_ID` |
+| `drive`    | Google Drive list/search | Google OAuth (browser prompt on first use) | Yes |
+| `granola`  | Granola meeting notes + transcripts | Granola desktop app running locally | Yes |
 
-You can swap in any MCP implementation that exposes the same tool names — see `.mcp.json.example` for the expected shape. If you don't use one of these sources (e.g. no Granola), that agent will report `sourceOk: false` and the dashboard falls back to empty arrays for its fields.
+If a server is unreachable, its agent returns `sourceOk: false` and the dashboard renders the rest cleanly — the unavailable sections just show empty arrays. You can add sources incrementally.
+
+Want to swap in a different MCP? Override entries in your own `~/.claude.json` under `mcpServers` — keep the same server names (`calendar`, `gmail`, `slack`, `drive`, `granola`) so the agents still resolve.
 
 ---
 
-## Install
+## Install (2 commands)
 
-### 1. Add this repo as a marketplace
-
-```
-/plugin marketplace add <your-github-handle>/work-dashboard
-```
-
-Replace `<your-github-handle>/work-dashboard` with wherever you've hosted this plugin.
-
-### 2. Install the plugin
+In Claude Code, run:
 
 ```
+/plugin marketplace add shadishalah-boop/work-dashboard
 /plugin install work-dashboard@work-dashboard
 ```
 
-(First `work-dashboard` = plugin name, second = marketplace name.)
+Then run the guided setup — it writes your config file, creates the output directories, copies the bundle, and prints per-MCP auth instructions:
 
-### 3. Connect the MCP servers
-
-Copy `.mcp.json.example` to your project root as `.mcp.json` (or merge into `~/.claude.json` under `mcpServers`). Replace each server's `command` / `args` / `env` with the actual MCP server you want to use. Authenticate each one per its own README.
-
-### 4. Create your config file
-
-Copy the template and edit it:
-
-```bash
-cp "$(claude plugin root work-dashboard)/templates/dashboard-config.local.example" \
-   ~/.claude/dashboard-config.local
+```
+/dashboard-setup
 ```
 
-Or just copy manually from `templates/dashboard-config.local.example` in the plugin bundle. Open it and fill in:
+The wizard asks ~7 quick questions (name, role, timezone, manager, company, Slack workspace, custom pins). Everything optional can be skipped and edited later. Takes ~3 minutes.
 
-- `user` — your name, email, timezone, working hours
-- `org` — company name, manager, senior stakeholders you work with, team roster
-- `slack` — your workspace slug + your Slack user ID + any high-signal channel patterns
-- `dashboard` — your OKRs, pinned links, weather city, focus hours target
-- `output` — where the HTML bundle and JSON cache should live on your machine
-
-This file **stays on your machine** — it's never bundled into anything you share.
-
-### 5. (Optional) Create a filter list
-
-If there are senders, projects, or topics you want kept off the dashboard (e.g. personal-life items bleeding in from your work inbox), copy the filters template:
-
-```bash
-cp "$(claude plugin root work-dashboard)/templates/dashboard-filters.local.example" \
-   ~/.claude/dashboard-filters.local
-```
-
-Add one pattern per line. The skill does a case-insensitive substring match against sender, subject, title, and meta fields before writing the overlay.
+If you prefer manual setup, see **Manual install** below.
 
 ---
 
 ## First run
 
+After `/dashboard-setup` completes, open `<dashboardDir>/Work Dashboard.html` in your browser (the setup wizard prints the exact path). Keep the tab pinned.
+
+Then:
+
 ```
-/work-dashboard:dashboard
+/dashboard
 ```
 
-On the very first invocation, the skill:
+This fans out to 6 agents in parallel (~30–60s), merges their JSON, and rewrites the dynamic JSX files. Reload the browser tab to see fresh data.
 
-1. Reads your config + filters
-2. Creates `output.dashboardDir` and `output.dataCacheDir` (defaults: `~/Documents/work-dashboard/` and `~/.claude/dashboard-data/`)
-3. Copies the HTML bundle from the plugin into `output.dashboardDir`
-4. Fans out to the 6 agents in parallel (~30–60s)
-5. Merges their JSON, writes `data-override.jsx` + `drive-index.jsx`, bumps cache versions
+---
 
-Open `<output.dashboardDir>/Work Dashboard.html` in your browser and keep the tab pinned. A reload after each refresh will pick up the new data.
+## Manual install
+
+If you don't want to use `/dashboard-setup`:
+
+```bash
+# 1. Copy the config template and edit it
+cp "$(claude plugin root work-dashboard)/templates/dashboard-config.local.example" \
+   ~/.claude/dashboard-config.local
+
+# 2. (Optional) Copy the filter template
+cp "$(claude plugin root work-dashboard)/templates/dashboard-filters.local.example" \
+   ~/.claude/dashboard-filters.local
+
+# 3. Edit the config — fill in user / org / slack / dashboard / output sections
+open ~/.claude/dashboard-config.local
+```
+
+Then run `/dashboard` — the skill auto-creates the output directories and copies the HTML bundle on first run.
+
+**Config file sections:**
+- `user` — your name, email, timezone, working hours
+- `org` — company name, manager, senior stakeholders you work with, team roster
+- `slack` — your workspace slug + user ID + high-signal channel patterns
+- `dashboard` — your OKRs, pinned links, weather city, focus hours target
+- `output` — where the HTML bundle and JSON cache should live
+
+This file **stays on your machine** — it's never bundled into anything you share.
 
 ---
 
