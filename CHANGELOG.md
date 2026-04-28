@@ -14,6 +14,22 @@ Local timestamped backups also live at `~/Documents/Claude/backups/work-os-vX.Y.
 
 ---
 
+## v0.2.1 — 2026-04-28
+
+Bug-fix release.
+
+- **Done state TTL bumped from 12 hours → 7 days.** Tasks marked complete were
+  reappearing the next morning when the agent re-suggested them from
+  Granola/Gmail (the source hadn't been updated). 7 days gives a realistic
+  buffer; if a task is still in source after a week, it'll surface again — a
+  signal worth showing.
+- **No other code changes.** Same UI, agents, MCPs, and config schema.
+
+Update: same one-line install — `/plugin install work-os@work-os` — picks up
+the new version. Hard-reload the dashboard tab to apply.
+
+---
+
 ## v0.2.0 — 2026-04-27
 
 **Renamed** plugin from `work-dashboard` → `work-os` (was conflicting with prior installations on colleague machines).

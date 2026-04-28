@@ -239,7 +239,10 @@ function TweaksPanel({ open, setOpen, accent, setAccent, density, setDensity, fo
 const DISMISS_KEY = 'dashboard.dismissedTasks.v1';
 const DONE_KEY = 'dashboard.doneTasks.v1';
 const DISMISS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const DONE_TTL_MS    = 12 * 60 * 60 * 1000;
+const DONE_TTL_MS    = 7 * 24 * 60 * 60 * 1000; // 7 days — agents re-suggest
+                                                 // tasks that aren't crossed
+                                                 // off in their source (Granola etc.),
+                                                 // so 12h was way too short.
 const DONE_LINGER_MS = 4000; // how long a done task stays visible before auto-archiving
 function normalizeTaskKey(s) {
   return (s || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
