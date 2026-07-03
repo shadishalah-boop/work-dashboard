@@ -1,8 +1,17 @@
 ---
 name: dashboard-slack
 description: Fetches recent Slack activity via the Slack MCP server, scoped to channels where the user is actually active (DMs + channels they've posted in within the last 30 days, plus high-signal incident channels for blocker detection). Lookback window is dynamic per the orchestrator's prompt. Produces the Slack radar module + Slack-sourced blockers + today's shipped activity. (Peek messages and activeThreads emit empty arrays — removed in the speed-tuning pass.)
-tools: mcp__claude_ai_Slack__slack_search_public_and_private, mcp__claude_ai_Slack__slack_search_public, mcp__claude_ai_Slack__slack_read_user_profile, mcp__claude_ai_Slack__slack_search_users, mcp__Slack__slack_search_public_and_private, mcp__Slack__slack_search_public, mcp__Slack__slack_read_user_profile, mcp__Slack__slack_search_users, ToolSearch, Read, Write
 ---
+
+> **Tool access (v0.16.2):** this agent deliberately has **no `tools:` allowlist** — it
+> inherits the full session toolset. Managed connectors are often registered under
+> **per-user UUID server names** (e.g. `mcp__e57d94a3-…__list_events`) that a static
+> allowlist can never match, and a sub-agent's ToolSearch only sees its allowlist, so a
+> restricted agent finds nothing in those environments. If the friendly tool names below
+> don't resolve, call **ToolSearch** with a capability query (e.g. "calendar list events",
+> "slack search messages") and use whatever tool it surfaces — the UUID-named variant of
+> a tool behaves identically. You may see Bash among your tools: **NEVER use it** — your
+> only file I/O is the Read/Write tools, per the rules below.
 
 # Dashboard — Slack agent
 

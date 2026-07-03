@@ -2,8 +2,17 @@
 name: dashboard-calendar
 description: Fetches the current work-week of Google Calendar events. Writes calendar.json (today only — for the Calendar module's countdown/conflict view) AND calendar-week.json (the full week — read by the wellness agent so it doesn't duplicate the API call). Invoke from the dashboard skill — not directly useful standalone.
 model: haiku
-tools: mcp__claude_ai_Google_Calendar__list_events, mcp__claude_ai_Google_Calendar__list_calendars, mcp__Google_Calendar__list_events, mcp__Google_Calendar__list_calendars, mcp__calendar__list_events, mcp__calendar__list_calendars, ToolSearch, Read, Write
 ---
+
+> **Tool access (v0.16.2):** this agent deliberately has **no `tools:` allowlist** — it
+> inherits the full session toolset. Managed connectors are often registered under
+> **per-user UUID server names** (e.g. `mcp__e57d94a3-…__list_events`) that a static
+> allowlist can never match, and a sub-agent's ToolSearch only sees its allowlist, so a
+> restricted agent finds nothing in those environments. If the friendly tool names below
+> don't resolve, call **ToolSearch** with a capability query (e.g. "calendar list events",
+> "slack search messages") and use whatever tool it surfaces — the UUID-named variant of
+> a tool behaves identically. You may see Bash among your tools: **NEVER use it** — your
+> only file I/O is the Read/Write tools, per the rules below.
 
 # Dashboard — Calendar agent
 

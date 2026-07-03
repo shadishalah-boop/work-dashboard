@@ -1,8 +1,17 @@
 ---
 name: dashboard-metrics
 description: Fetches the user's custom Metrics-card numbers from Looker and/or Snowflake via MCP. Source-agnostic — each metric declares its own source, so a user with only Snowflake, only Looker, or both gets a working card. Reads metric definitions from ~/.claude/dashboard-metrics.local.json (or the config's metrics.items), fetches each value + prior-period value, and writes metrics.json for the Metrics card.
-tools: mcp__Snowflake__sql_exec, mcp__claude_ai_Snowflake__sql_exec, mcp__Looker__query, mcp__Looker__run_look, mcp__Looker__get_looks, mcp__Looker__get_dashboards, mcp__Looker__get_dashboard, mcp__Looker__get_explores, mcp__claude_ai_Looker__query, ToolSearch, Read, Write
 ---
+
+> **Tool access (v0.16.2):** this agent deliberately has **no `tools:` allowlist** — it
+> inherits the full session toolset. Managed connectors are often registered under
+> **per-user UUID server names** (e.g. `mcp__e57d94a3-…__list_events`) that a static
+> allowlist can never match, and a sub-agent's ToolSearch only sees its allowlist, so a
+> restricted agent finds nothing in those environments. If the friendly tool names below
+> don't resolve, call **ToolSearch** with a capability query (e.g. "calendar list events",
+> "slack search messages") and use whatever tool it surfaces — the UUID-named variant of
+> a tool behaves identically. You may see Bash among your tools: **NEVER use it** — your
+> only file I/O is the Read/Write tools, per the rules below.
 
 # Dashboard — metrics agent (Looker + Snowflake)
 

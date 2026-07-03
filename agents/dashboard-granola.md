@@ -2,8 +2,17 @@
 name: dashboard-granola
 description: Fetches the last 7 days of meeting notes from Granola AND (when available) Zoom, merges/dedupes meetings that appear in both, and extracts action items, commitments, projects, decisions, and blockers for the Work Dashboard's Top-3, Tasks, Projects, Blockers, and Decisions modules. Invoke from the dashboard skill — not directly useful standalone.
 model: haiku
-tools: mcp__claude_ai_Granola__list_meetings, mcp__claude_ai_Granola__get_meetings, mcp__Granola__list_meetings, mcp__Granola__get_meetings, mcp__granola__list_meetings, mcp__granola__get_meetings, mcp__Zoom_for_Claude__search_meetings, mcp__Zoom_for_Claude__recordings_list, mcp__Zoom_for_Claude__get_meeting_assets, mcp__Zoom_for_Claude__get_recording_resource, mcp__Zoom_for_Claude__search_zoom, mcp__claude_ai_Zoom_for_Claude__search_meetings, ToolSearch, Read, Write
 ---
+
+> **Tool access (v0.16.2):** this agent deliberately has **no `tools:` allowlist** — it
+> inherits the full session toolset. Managed connectors are often registered under
+> **per-user UUID server names** (e.g. `mcp__e57d94a3-…__list_events`) that a static
+> allowlist can never match, and a sub-agent's ToolSearch only sees its allowlist, so a
+> restricted agent finds nothing in those environments. If the friendly tool names below
+> don't resolve, call **ToolSearch** with a capability query (e.g. "calendar list events",
+> "slack search messages") and use whatever tool it surfaces — the UUID-named variant of
+> a tool behaves identically. You may see Bash among your tools: **NEVER use it** — your
+> only file I/O is the Read/Write tools, per the rules below.
 
 # Dashboard — Granola agent
 

@@ -14,6 +14,26 @@ Local timestamped backups also live at `~/Documents/Claude/backups/work-os-vX.Y.
 
 ---
 
+## v0.16.2 — 2026-07-03
+
+**Fix: data agents couldn't reach UUID-named managed connectors.** In many environments,
+claude.ai-managed connectors register under per-user UUID server names (e.g.
+`mcp__e57d94a3-…__list_events`) instead of the friendly `Google_Calendar` /
+`claude_ai_Google_Calendar` names. The six MCP-using agents (calendar, gmail, granola,
+drive, slack, metrics) had static `tools:` allowlists that could never match those UUIDs —
+and a sub-agent's ToolSearch only sees its own allowlist, so the fallback resolution found
+nothing either. Every refresh in such environments failed all sub-agents (`sourceOk:false`
+"tool not found") and fell back to slow inline fetching by the orchestrator.
+
+Fix: the `tools:` allowlist is **removed** from those six agents — they now inherit the
+full session toolset, so ToolSearch resolves whatever the connector is actually called
+(friendly or UUID). Each agent carries a note explaining the resolution order and an
+explicit "never use Bash" rule to preserve the no-permission-prompt property the old
+allowlist provided. `dashboard-wellness` keeps its `Read, Write` allowlist (it makes no
+MCP calls).
+
+---
+
 ## v0.16.1 — 2026-06-22
 
 **Reverted v0.16.0 (warm auto-refresh / `schedule.sh warm` + docs).** It added an opt-in
