@@ -14,6 +14,27 @@ Local timestamped backups also live at `~/Documents/Claude/backups/work-os-vX.Y.
 
 ---
 
+## v0.17.0 — 2026-07-06
+
+**New: a connector-only `work-os` glance skill that runs anywhere — including from Slack.**
+The `dashboard` skill renders the full local React view, but it depends on the laptop
+(local files, a running server). It can't help when you tag `@Claude` in Slack, because
+that spins up a cloud session with no access to your machine.
+
+`work-os` fills that gap: a self-contained skill that assembles your current operating
+picture — Top-3, tasks due/overdue, blockers, decisions pending, recent wins, inbox asks,
+next meeting, and (if configured) key metrics — **live from cloud connectors** (Granola,
+Gmail, Slack, Calendar, and optionally Looker/Snowflake). No cache, no local files, no
+running dashboard required, so it behaves identically in a laptop Claude Code session and
+in a Slack-launched cloud session. Trigger it with "my work os", "what's on my plate", or
+`/work-os`.
+
+Consistent with the plugin's design, **nothing personal is hardcoded**: identity comes
+from `~/.claude/dashboard-config.local` when it's reachable, and otherwise is derived live
+from the authenticated connectors (Slack/Gmail profile). Metrics are strictly opt-in — the
+Metrics section appears only if you've configured metrics, and the skill is **read-only
+across every source** (no warehouse DML/DDL, no emails, no Slack posts, no calendar edits).
+
 ## v0.16.2 — 2026-07-03
 
 **Fix: data agents couldn't reach UUID-named managed connectors.** In many environments,
