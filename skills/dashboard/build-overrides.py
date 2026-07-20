@@ -360,6 +360,79 @@ else:
 def _bucket_key(t):
     return re.sub(r"\s+", " ", (t.get("label") or "").strip().lower())
 
+# Top-3 re-pick (v0.18.0): choose the 3 by SCORE across ALL sources — granola
+# top3/blocked, gmail+manual overdue/dueSoon, granola+gmail decisions, slack
+# needsReply — instead of granola-only. Dimensions mirror the front-end scorer
+# (modules-a.jsx scoreTask): urgency (bucket), priority (p), impact (stakeholder
+# seniority, money at stake, blocking), time (today/tomorrow/deadline). Manual
+# top3 entries (explicit user picks) always take slots first.
+if not NOTION_BACKEND:
+    def _score_task(t, bucket):
+        s = {"overdue": 40, "top3": 30, "decision": 30, "needsReply": 28,
+             "dueSoon": 25, "blocked": 15}.get(bucket, 10)
+        text = f"{t.get('label','')} {t.get('meta','')}".lower()
+        p = t.get("p")
+        if p == 1: s += 20
+        elif p == 2: s += 10
+        if re.search(r"\bceo\b", text): s += 25
+        elif re.search(r"\b(svp|evp|vp)\b", text): s += 20
+        elif re.search(r"\b(director|head of)\b", text): s += 15
+        elif re.search(r"\b(manager|lead)\b", text): s += 12
+        if re.search(r"[$€£]\s?\d|\b\d+(\.\d+)?[mk]\b", text): s += 12
+        if re.search(r"\bblock(s|ing|ed)?\b", text): s += 12
+        if re.search(r"\btoday\b", text): s += 15
+        elif re.search(r"\btomorrow\b", text): s += 12
+        elif re.search(r"\b(this week|due |deadline|expires?)\b", text): s += 8
+        return s
+
+    _cands, _ckeys = [], set()
+
+    def _cand(items, bucket, map_fn=None):
+        for t in items or []:
+            if not isinstance(t, dict) or t.get("done"):
+                continue
+            c = map_fn(t) if map_fn else dict(t)
+            k = _bucket_key(c)
+            if not k or k in _ckeys:
+                continue
+            _ckeys.add(k)
+            c["_score"] = _score_task(c, bucket)
+            _cands.append(c)
+
+    def _dec(d):  # decision → task shape
+        return {"label": d.get("title", ""), "meta": d.get("meta", "decision pending"),
+                "p": 1, "project": d.get("project", ""), "done": False}
+
+    def _nr(n):  # slack needsReply → task shape
+        return {"label": n.get("label", ""), "meta": f"Slack · {n.get('who', '')} waiting",
+                "p": 2, "project": "", "done": False}
+
+    _cand(MANUAL["top3"], "top3")
+    _cand(safe(granola, "top3"), "top3")
+    _cand(overdue_raw, "overdue")
+    _cand(duesoon_raw, "dueSoon")
+    _cand(blocked, "blocked")
+    _cand(safe(granola, "decisions"), "decision", _dec)
+    _cand(safe(gmail, "decisions"), "decision", _dec)
+    _cand(safe(slack, "needsReply"), "needsReply", _nr)
+
+    _manual_keys = {k for k in (_bucket_key(t) for t in MANUAL["top3"]) if k}
+    _forced = [c for c in _cands if _bucket_key(c) in _manual_keys]
+    _rest = sorted((c for c in _cands if _bucket_key(c) not in _manual_keys),
+                   key=lambda c: -c["_score"])
+    top3 = [{k: v for k, v in c.items() if k != "_score"}
+            for c in (_forced + _rest)[:3]]
+
+    # Granola Top-3 candidates that DIDN'T win a slot must not vanish — park
+    # them in Due soon so they stay actionable on the Tasks card.
+    _picked = {k for k in (_bucket_key(t) for t in top3) if k}
+    _gran_keys = {k for k in (_bucket_key(t) for t in safe(granola, "top3") or []) if k}
+    duesoon_raw = duesoon_raw + [
+        {k2: v for k2, v in c.items() if k2 != "_score"}
+        for c in _rest
+        if _bucket_key(c) in _gran_keys and _bucket_key(c) not in _picked
+    ]
+
 # User-demoted items: pull anything the user moved OUT of Top-3 back into Due soon, so
 # the reversal sticks across refreshes even for the agent's own Top-3 picks.
 if DEMOTED_TOP3:

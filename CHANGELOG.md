@@ -14,6 +14,26 @@ Local timestamped backups also live at `~/Documents/Claude/backups/work-os-vX.Y.
 
 ---
 
+## v0.18.0 — 2026-07-20
+
+**Top-3 is now scored across ALL data sources, and the card is hard-capped at 3.**
+
+Two fixes to "What actually matters today":
+
+- **Multi-source scoring at merge time** (`build-overrides.py`): the Top-3 used to be
+  fed from manual + Granola items only — Gmail decisions/overdue and Slack replies-owed
+  could never become a top priority. Now every refresh scores candidates from granola
+  top3/blocked, gmail+manual overdue/dueSoon, granola+gmail decisions, and slack
+  needsReply on urgency (bucket), priority (p), impact (stakeholder seniority, money at
+  stake, blocking others), and time (today/tomorrow/deadline) — mirroring the front-end
+  `scoreTask` heuristics — and picks the top 3. Manual top3 entries (explicit user
+  picks) always claim slots first. Granola candidates that lose their slot park in Due
+  soon instead of vanishing.
+- **Hard display cap at 3** (`app.jsx`): drag-promoted pins accumulated in localStorage
+  and the card rendered pins + seeded items unbounded. Now pins claim slots first, the
+  scored picks fill the rest, checked-off/dismissed items don't waste a slot, and the
+  existing "Algo suggests" row surfaces the #4 candidate.
+
 ## v0.17.0 — 2026-07-06
 
 **New: a connector-only `work-os` glance skill that runs anywhere — including from Slack.**

@@ -1272,10 +1272,14 @@ function useDashboardState() {
   // duplicate/missing id (e.g. an older data-override.jsx built before ids were
   // normalized) would make checking one item flip all of them. De-collide here so a
   // plain reload fixes it without waiting for a re-merge.
+  // Hard cap at 3: pins (explicit user picks) claim slots first, then the
+  // merge's scored picks fill the rest. Items already checked off or dismissed
+  // in this browser don't waste a slot. The "Algo suggests" row surfaces #4.
+  const _hiddenNow = { ...loadDismissedTasks(), ...loadDoneTasks() };
   const _rawTop3 = [
     ..._pinnedRows,
     ...((SEED.top3 || []).filter(t => !_pinnedKeys.has(normalizeTaskKey(t.label)))),
-  ];
+  ].filter(t => !(normalizeTaskKey(t.label) in _hiddenNow)).slice(0, 3);
   const _seenTop3Ids = new Set();
   const _initTop3 = _rawTop3.map((t, i) => {
     let id = t.id || ('top' + (i + 1));
