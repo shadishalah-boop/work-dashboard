@@ -13,6 +13,7 @@ Paths (data cache dir, dashboard output dir) also come from the config, falling
 back to ~/.claude/dashboard-data and ~/.claude/dashboard-os.
 """
 
+import datetime
 import json
 import os
 import re
@@ -244,6 +245,44 @@ slack = load("slack")
 drive = load("drive")
 wellness = load("wellness")
 metrics = load("metrics")
+
+# --- Self-correct "today" from the dated week file -------------------------
+# calendar.json carries times but no dates, so a mis-dated today-filter by the
+# (haiku) calendar agent sails through undetected — the symptom being yesterday's
+# events shown as today. calendar-week.json IS dated per-event and is the source
+# of truth, so when it covers the current local date we rebuild today's events
+# from it, overriding calendar.json's events. Falls back to calendar.json when the
+# week file is missing, unparsable, or doesn't span today (e.g. stale/off-week).
+def _rebuild_today_from_week(cal, week):
+    if not week.get("sourceOk", True):
+        return cal
+    wk = week.get("events") or []
+    if not wk:
+        return cal
+    ws, we = week.get("weekStart"), week.get("weekEnd")
+    local_today = datetime.datetime.now().strftime("%Y-%m-%d")
+    # Only trust the week file if it actually spans today (ISO dates compare lexically).
+    if not (ws and we and ws <= local_today <= we):
+        return cal
+    today_evs = sorted(
+        (e for e in wk if e.get("date") == local_today),
+        key=lambda x: x.get("time") or "",
+    )
+    mapped = [{
+        "time": e.get("time"),
+        "duration": e.get("duration"),
+        "title": e.get("title"),
+        "attendees": e.get("attendees") or [],
+        "overflow": max(0, len(e.get("attendees") or []) - 6),
+        "location": e.get("location"),
+        "type": "focus" if e.get("isFocus") else "event",
+    } for e in today_evs][:12]
+    out = dict(cal)
+    out["events"] = mapped
+    out.setdefault("sourceOk", True)
+    return out
+
+calendar = _rebuild_today_from_week(calendar, load("calendar-week"))
 
 # Favicon / identity: the user's Slack profile photo (fetched by the slack agent),
 # falling back to a config override. The HTML swaps the tab icon to this if set.
