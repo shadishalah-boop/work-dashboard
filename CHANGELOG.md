@@ -14,6 +14,42 @@ Local timestamped backups also live at `~/Documents/Claude/backups/work-os-vX.Y.
 
 ---
 
+## v0.19.0 — 2026-07-21
+
+**Prompt-free refresh in under a minute, and checked-off pinned tasks stay gone.**
+
+- **Refresh reengineered — direct-tool inline, no sub-agents, no ad-hoc shell**
+  (`skills/dashboard/SKILL.md`): the old flow spawned per-source sub-agents that, in
+  claude.ai-connector environments, can't see the connectors — they'd fail after
+  ~60–90s each and the work was redone inline, often via improvised shell (heredocs,
+  `cat >` temp scripts, `python3 -c` date math) that permission engines flag as
+  un-analyzable and therefore always prompt. The skill now bakes in two hard rules:
+  (1) the only Bash allowed is the bundled `prep.sh`/`slack-prep.sh` and direct
+  `python3 drive-transform.py` / `python3 build-overrides.py` calls — all data files
+  are written with the Write tool; (2) every source (calendar, gmail, granola, drive,
+  metrics, slack) is fetched inline by the main session in ONE parallel MCP tool
+  block. The `wait-and-merge.sh` poller (which could stall 5 minutes waiting for a
+  file a failed agent never wrote) is deprecated — the merge runs as two direct,
+  allowlistable `python3` calls. Net effect: zero permission prompts, refresh
+  completes in well under a minute.
+- **`allowlist.sh` now also grants the write-side rules** — `Bash(python3 *)`,
+  `Write`/`Read` on `~/.claude/dashboard-data/**`, `~/.claude/dashboard-os/**`, and
+  the dashboard config/profile files — so a fresh install is fully prompt-free after
+  one allowlist run (previously only the read-only connector tools were granted).
+- **Zombie pinned tasks fixed** (`public/app.jsx`, cache `?v=67`): items dragged into
+  "What actually matters today" are stored as pins with no expiry, but the done/dismiss
+  markers that hide them expire (7/14 days) — so a checked-off pin resurrected forever,
+  and older pins saved with `done: true` baked in rendered pre-struck and could never
+  be cleared. Three fixes: a boot sweep deletes any pin that's been checked off,
+  dismissed, or carries a baked-in done flag; checking off a pinned item now deletes
+  its pin; dismissing one does too.
+- **Drive agent failure no longer stalls the merge** (`agents/dashboard-drive.md`): on
+  a connector failure the agent now writes the `sourceOk:false` marker to BOTH
+  `drive-raw.json` (the file the legacy poller watches) and `drive.json`, so even the
+  deprecated `wait-and-merge.sh` path resolves immediately instead of timing out.
+
+---
+
 ## v0.18.0 — 2026-07-20
 
 **Top-3 is now scored across ALL data sources, and the card is hard-capped at 3.**

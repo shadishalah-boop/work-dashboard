@@ -51,6 +51,21 @@ for prefix in ("claude_ai_", ""):
             rules.append(f"mcp__{prefix}{srv}__{t}")
 # This plugin's own scripts (version-globbed so updates don't re-prompt).
 rules.append(f"Bash({bash_prefix}:*)")
+# The refresh runs prep/merge as bundled scripts and writes the data/bundle files
+# with the Write tool — grant those so a v0.19 direct-tool refresh is fully
+# prompt-free. `//` = filesystem-absolute in Claude Code's permission path syntax.
+home = os.path.expanduser("~")
+rules += [
+    "Bash(python3 *)",
+    f"Write(//{home}/.claude/dashboard-data/**)",
+    f"Write(//{home}/.claude/dashboard-os/**)",
+    f"Write(//{home}/.claude/dashboard-slack-profile.json)",
+    f"Write(//{home}/.claude/dashboard-tasks.local)",
+    f"Read(//{home}/.claude/dashboard-data/**)",
+    f"Read(//{home}/.claude/dashboard-os/**)",
+    f"Read(//{home}/.claude/dashboard-config.local)",
+    f"Read(//{home}/.claude/dashboard-metrics.local.json)",
+]
 
 added = [r for r in rules if r not in allow]
 allow.extend(added)

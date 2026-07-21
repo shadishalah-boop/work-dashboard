@@ -1265,6 +1265,18 @@ function useDashboardState() {
   // their source bucket + persistence. SEED.top3 entries already promoted are
   // de-duped out here at load.
   const _initPins   = loadTop3Pins();
+  // Reconcile zombie pins at boot: a pin whose item was checked off/dismissed, or
+  // that was saved with done:true baked in (older promote code stored the whole
+  // task object), is finished for good. Pins have no TTL while the done/dismiss
+  // markers expire, so without this sweep the pin resurrects the item forever.
+  {
+    const _hiddenAtBoot = { ...loadDismissedTasks(), ...loadDoneTasks() };
+    let _pinsDirty = false;
+    Object.entries(_initPins).forEach(([k, p]) => {
+      if (k in _hiddenAtBoot || (p && p.done === true)) { delete _initPins[k]; _pinsDirty = true; }
+    });
+    if (_pinsDirty) saveTop3Pins(_initPins);
+  }
   const _pinnedKeys = new Set(Object.keys(_initPins));
   const _pinnedRows = Object.values(_initPins).map(p => ({ ...p, _pinned: true }));
   const [top3Pins, setTop3Pins] = uS(_initPins);
@@ -1331,6 +1343,12 @@ function useDashboardState() {
       setBlocked(prev => prev.filter(t => normalizeTaskKey(t.label) !== k));
       return;
     }
+    // Dismissing a pinned Top-3 item also kills the pin (same zombie-resurrection
+    // risk as in archiveDoneTask — the dismiss marker expires, the pin doesn't).
+    setTop3Pins(prev => {
+      if (!(k in prev)) return prev;
+      const next = { ...prev }; delete next[k]; saveTop3Pins(next); return next;
+    });
     // Otherwise: regular dismiss (14-day TTL, can resurface)
     writeStore(DISMISS_KEY, setDismissed, s);
   };
@@ -1346,6 +1364,12 @@ function useDashboardState() {
       if (stored[bucket].length !== before) touchedUserStore = true;
     });
     if (touchedUserStore) saveUserAddedTasks(stored);
+    // A checked-off pin is done for good — drop it so it can't resurface when
+    // the DONE_KEY marker expires (pins have no TTL).
+    setTop3Pins(prev => {
+      if (!(k in prev)) return prev;
+      const next = { ...prev }; delete next[k]; saveTop3Pins(next); return next;
+    });
     writeStore(DONE_KEY, setDoneStore, s);
   };
   const restoreHidden = () => {

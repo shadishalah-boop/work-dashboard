@@ -11,21 +11,50 @@ inline Slack, then a merge into `data-override.jsx` + `drive-index.jsx` for the 
 React-in-browser dashboard. All per-user identity and paths come from
 `~/.claude/dashboard-config.local` (created by the `dashboard-setup` skill).
 
-## Architecture
+## Architecture (v0.19 — direct-tool inline, no sub-agents, no ad-hoc shell)
 
 ```
-(interactive session — connectors live here)
+(interactive session — connectors live here, and ONLY here)
   bash prep.sh            → dates/window/cache + pre-delete + MCP server names
-  fan out, in-session:
-    ├─ 5 agents (parallel) → <dataCacheDir>/{calendar,granola,gmail,drive,wellness}.json
-    └─ Slack (inline, main session, not a sub-agent) → <dataCacheDir>/slack.json
-  bash wait-and-merge.sh  → drive-transform.py + build-overrides.py
-        └─ <dashboardDir>/data-override.jsx + drive-index.jsx  (+ cache-bust the HTML)
+  ONE parallel tool block, all in THIS session:
+    ├─ mcp__…__list_events        → Write calendar.json + calendar-week.json
+    ├─ mcp__…__search_threads(+get_thread) → Write gmail.json
+    ├─ mcp__…__list_meetings(+get_meetings) → Write granola.json
+    ├─ mcp__…__list_recent_files  → Write drive-raw.json
+    └─ 4× slack_search_public_and_private   → Write slack.json
+  (wellness: Read calendar-week.json → Write wellness.json — no MCP)
+  python3 drive-transform.py ; python3 build-overrides.py
+        └─ data-override.jsx + drive-index.jsx  (+ cache-bust the HTML)
 ```
 
-> The old headless `refresh-headless.sh` / `headless-prompt.md` path is **deprecated**
-> — a headless `claude -p` can't see claude.ai-managed connectors, so it fetched
-> nothing. Kept only for environments whose connectors load headlessly.
+> ## ⛔ PERMISSIONLESS & FAST — the two hard rules (read before anything else)
+>
+> A prior build spawned sub-agents (which CAN'T see the claude.ai connectors here, so
+> they fail and get redone) and improvised shell to fake the work. Both are banned.
+>
+> **RULE 1 — the ONLY things this skill may run in Bash are the three bundled scripts:**
+> `prep.sh`, `slack-prep.sh`, and `python3 …/drive-transform.py` / `python3 …/build-overrides.py`.
+> **NEVER** emit a heredoc (`<<EOF`), `cat >`/`cat <<`, `python3 -c`, `echo >`, a `bash`
+> function definition, `chmod`, or any `/tmp/*.sh` scratch file. Those are flagged as
+> un-analyzable/obfuscated and can NEVER be allowlisted, so every one forces a manual
+> prompt — the exact thing we're eliminating. All dates/paths already come out of
+> `prep.sh`; you never need to compute them in a shell. **All JSON files are written with
+> the `Write` tool** (allowlisted for `~/.claude/dashboard-data/**`), never via shell redirect.
+>
+> **RULE 2 — fetch every source INLINE via direct MCP tool calls. Do NOT use the
+> `Agent`/sub-agent tool.** In this environment the connectors are visible only to the
+> main session; a sub-agent finds no tool, fails, and doubles the work. You, the main
+> assistant, call the MCP tools directly. This is both permissionless (the read-only
+> connector tools are allowlisted) and the fast path (one parallel round-trip, ~15–30s).
+>
+> Everything the refresh touches — MCP read tools, the Write tool, `prep.sh`, `python3`
+> — is already in `~/.claude/settings.json`. If you follow both rules, a refresh runs
+> start-to-finish with **zero prompts** and completes in **under a minute**.
+
+> The old headless `refresh-headless.sh` / `headless-prompt.md` path and the
+> `wait-and-merge.sh` poller are **deprecated** — the poller waited up to 5 min for
+> files that inline writing has already put on disk. Merge with the two direct
+> `python3` calls in Step 4 instead.
 
 ## How to refresh — runs in THIS Claude Code session
 
@@ -134,58 +163,51 @@ Do this yourself, inline:
 > kept, so Slack never blocks the run. The whole refresh is capped by `serve.py`
 > (`REFRESH_TIMEOUT`), so a stuck refresh always resolves and reports a result.
 
-### Step 3 — fetch the other sources, in this session (two tool blocks)
+### Step 3 — fetch every remaining source INLINE, in ONE parallel tool block
 
-**Two blocks, not one — `dashboard-wellness` depends on a file `dashboard-calendar`
-writes**, so it must run **after** calendar finishes. The other agents have no
-dependency, so they all run in parallel in the first block.
+Do NOT spawn sub-agents (see RULE 2). You call the MCP tools yourself. For each source
+in `RUN_AGENTS` except wellness, resolve the tool as `mcp__<MCP_*>__<tool>` (the server
+names came from prep; fall back to `mcp__claude_ai_<Server>__…` then `ToolSearch`), and
+issue **all of these calls together in a single tool-use block** so they run
+concurrently. When a source's data comes back, **Write** its JSON with the Write tool
+(never a shell redirect). If a source needs a follow-up call (gmail `get_thread`,
+granola `get_meetings`), make those in the next block, then Write. The per-source specs
+(schema, incremental rules, caps) live in `${CLAUDE_PLUGIN_ROOT}/agents/dashboard-<name>.md`
+— Read the one you're unsure about; do NOT paste its logic into a shell script.
 
-**Block 1** — single tool-use block, spawn every agent in `RUN_AGENTS` **EXCEPT
-wellness** in parallel (`subagent_type: dashboard-<name>`). They run in THIS session,
-so they can reach the `claude_ai_`-prefixed connectors. Tell each its server name and
-absolute output path.
+Fetch calls to issue in the parallel block (substitute the captured prep values):
 
-**Block 2** — once block 1 returns, if `wellness` is in `RUN_AGENTS`, spawn
-`dashboard-wellness` alone. It only Reads `calendar-week.json` (which calendar wrote
-in block 1, OR which an earlier refresh left on disk if calendar is currently cached)
-and Writes `wellness.json` — no MCP calls — so it finishes in ~10s. If `wellness` is
-not in `RUN_AGENTS`, skip block 2 entirely.
+- **calendar** → `mcp__<MCP_CALENDAR>__list_events` for the whole work-week in ONE call (`WEEK_START` 00:00 → `WEEK_END` 00:00, `timeZone=<TZNAME>`). Then Write **both** `<DATA_DIR>/calendar.json` (today's events) and `<DATA_DIR>/calendar-week.json` (the full week).
+- **gmail** → `mcp__<MCP_GMAIL>__search_threads` with `after:<SINCE_WINDOW>`; for the actionable hits, `get_thread`; merge into the existing `gmail.json` (dedupe by thread id, drop >14d). Write `<DATA_DIR>/gmail.json`.
+- **granola** → `mcp__<MCP_GRANOLA>__list_meetings`; if any meeting started after `<SINCE_ISO>`, `get_meetings` for those new IDs only and merge; else re-Write the existing file unchanged. (Zoom via `<MCP_ZOOM>` optional — skip silently if unresolved.) Write `<DATA_DIR>/granola.json`.
+- **drive** → `mcp__<MCP_DRIVE>__list_recent_files` (last 14 days). Write the raw response to `<DATA_DIR>/drive-raw.json`.
+- **metrics** (only if `HAS_METRICS=yes`) → read defs from `<METRICS_DEFS>`; query `mcp__<MCP_SNOWFLAKE>__sql_exec` / `mcp__<MCP_LOOKER>__query` per `agents/dashboard-metrics.md`. Write `<DATA_DIR>/metrics.json`.
 
-Kickoffs (substitute captured values):
+**Wellness** (if in `RUN_AGENTS`): after calendar's JSON is written, **Read**
+`<DATA_DIR>/calendar-week.json` yourself, classify focus vs meeting hours, write a short
+personalized `weeklyMessage`, and **Write** `<DATA_DIR>/wellness.json`. No MCP call, no
+sub-agent — it's a Read + a Write.
 
-- `dashboard-calendar`: `Refresh calendar data. TODAY=<TODAY>; TOMORROW=<TOMORROW>; NOW=<NOW>; WEEK_START=<WEEK_START>; WEEK_END=<WEEK_END>; timezone=<TZNAME>. Your calendar MCP server is named <MCP_CALENDAR> — resolve mcp__<MCP_CALENDAR>__list_events (else ToolSearch "calendar list events"). Fetch the whole work-week in ONE list_events call (WEEK_START → WEEK_END), then write BOTH <DATA_DIR>/calendar.json (today only) AND <DATA_DIR>/calendar-week.json (the full week — wellness will read it).`
-- `dashboard-gmail`: `Refresh gmail INCREMENTALLY. SINCE_EPOCH=<SINCE_EPOCH>; SINCE=<SINCE_WINDOW> (fetch only threads with activity after this; read the existing gmail.json and merge — dedupe by thread id, drop items >14d old; if nothing new, write it back unchanged). Today=<TODAY>; timezone=<TZNAME>. Your gmail MCP server is named <MCP_GMAIL>. Write <DATA_DIR>/gmail.json.`
-- `dashboard-granola`: `Refresh meeting notes INCREMENTALLY from Granola AND Zoom, merged/deduped. SINCE=<SINCE_ISO> (only process meetings started after this; if none are new, write the existing granola.json back unchanged WITHOUT calling get_meetings; otherwise get_meetings for new IDs only and merge into the existing JSON, dropping items >14d old). Today=<TODAY>; timezone=<TZNAME>. Your granola MCP server is named <MCP_GRANOLA>; your zoom MCP server is named <MCP_ZOOM> (optional — skip Zoom silently if it doesn't resolve). Write <DATA_DIR>/granola.json.`
-- `dashboard-drive`: `Refresh drive (files modified last 14 days). Today=<TODAY>. Your drive MCP server is named <MCP_DRIVE>. Write the raw response to <DATA_DIR>/drive-raw.json.`
-- `dashboard-wellness`: `Refresh wellness for this week. Today=<TODAY>; NOW=<NOW>; timezone=<TZNAME>; WEEK_FILE=<DATA_DIR>/calendar-week.json. Read WEEK_FILE (the calendar agent writes it from a single API call — do NOT call list_events yourself), classify focus vs meetings, sum hours, and craft a short personalized weeklyMessage that names specific meetings/attendees from this week. Write <DATA_DIR>/wellness.json.`
+**If a source errors** (tool not found / connector down): Write its JSON with
+`"sourceOk": false` and move on. One dead source never blocks the others or the merge.
 
-**Custom Metrics card — REQUIRED when `HAS_METRICS=yes`.** You MUST spawn
-`dashboard-metrics` in this same fan-out block (it's easy to forget — don't). Skipping it
-means the user's saved metrics never get values. If the sub-agent can't reach the data
-connector, run its spec inline in the main session (same fallback as below).
-- `dashboard-metrics`: `Fetch the custom Metrics-card numbers. Read definitions from <METRICS_DEFS> (or config metrics.items). Snowflake server=<MCP_SNOWFLAKE>; Looker server=<MCP_LOOKER>. timezone=<TZNAME>. For each metric, fetch the current value + a prior-period value per agents/dashboard-metrics.md (Snowflake "nl" metrics: discover the schema and write the SQL yourself), then Write <DATA_DIR>/metrics.json.`
-  (Snowflake is a normal MCP a sub-agent can usually reach; Looker may be a desktop/local connector — if unreachable, do the metric inline in the main session.)
+### Step 4 — merge (two direct python3 calls — allowlisted, no polling)
 
-**Fallback (important):** if a spawned agent reports it can't reach its connector
-(some environments don't expose claude.ai connectors to sub-agents), perform that
-agent's spec **yourself inline** in this session — you, the main assistant, can
-always reach the connectors. Read `${CLAUDE_PLUGIN_ROOT}/agents/dashboard-<name>.md`, fetch, and Write the
-JSON. Do the same for any agent that writes `sourceOk:false` with a "tool not found"
-error. Never leave a source failed just because the sub-agent couldn't see the tool.
-
-### Step 4 — merge (one bash call)
+Every JSON is already on disk from Step 3, so there's nothing to wait for. Run the merge
+as **two separate, single-command Bash calls** — each is a plain `python3 <script>` that
+the `Bash(python3 *)` allow-rule matches exactly (no `&&`/pipes/heredocs → no prompt):
 
 ```
-Bash(command: "bash ${CLAUDE_PLUGIN_ROOT}/skills/dashboard/wait-and-merge.sh <START_TS> <RUN_AGENTS>",
-     timeout: 360000, description: "Merge dashboard data")
+# only if drive was in RUN_AGENTS:
+Bash(command: "python3 ${CLAUDE_PLUGIN_ROOT}/skills/dashboard/drive-transform.py", description: "Drive transform")
+# always:
+Bash(command: "python3 ${CLAUDE_PLUGIN_ROOT}/skills/dashboard/build-overrides.py", description: "Merge dashboard data")
 ```
 
-Substitute `<START_TS>` and the space-separated `<RUN_AGENTS>`. It runs
-`drive-transform.py` (if drive ran) then `build-overrides.py`, which merges every
-agent JSON (including the `slack.json` from Step 2) + the config static blocks into
-`data-override.jsx` / `drive-index.jsx`, bumps cache versions, and prints the
-confirmation line. **Relay that line.** No MCP — allowlistable, never prompts after
-the first approval.
+`build-overrides.py` merges
+every source JSON + the config static blocks into `data-override.jsx` / `drive-index.jsx`,
+bumps their cache versions, and prints the confirmation line. **Relay that line.** Do NOT
+use `wait-and-merge.sh` — its poll loop is what added minutes to the old flow.
 
 **Incremental window (v0.14).** The lookback cutoff (`SINCE_ISO`/`SINCE_EPOCH`/
 `SINCE_WINDOW`) is the **exact moment of the last refresh** — agents fetch only what
@@ -220,12 +242,16 @@ generic placeholders.
 
 ## Rules & gotchas
 
-- **Runs in-session, not headless.** Fetch all sources in this session (prep →
-  in-session agents + inline Slack → merge). A headless `claude -p` can't see
-  claude.ai connectors, so don't route the fetch through `refresh-headless.sh`.
-- **First refresh prompts once per connector tool** — tell the user to pick "don't
-  ask again"; after that it's silent. This is unavoidable for session-scoped
-  connectors and is the trade for them working at all.
+- **Direct-tool inline, never sub-agents, never ad-hoc shell** (RULES 1 & 2 up top).
+  All sources are fetched by the main session via MCP tool calls and written with the
+  Write tool; the only Bash is `prep.sh` / `slack-prep.sh` / `python3 …drive-transform.py`
+  / `python3 …build-overrides.py`. No heredocs, no `cat >`, no `python3 -c`, no bash
+  functions. This is what keeps the refresh prompt-free and under a minute.
+- **Should be fully prompt-free** once `allowlist.sh` has run (read-only connector
+  tools + Write(`dashboard-data`/`dashboard-os`) + `python3`/`prep.sh` are allowlisted).
+  If you ever see a permission prompt, it means an ad-hoc shell command was emitted —
+  that's a RULE 1 violation, not a missing allow-rule; fix the command, don't ask the
+  user to approve it.
 - **Static blocks live in `~/.claude/dashboard-config.local`**, read by
   `build-overrides.py`. Update the config to change roster / OKRs / pins / greeting.
 - **Never bump the other cache params.** The merge bumps only `data-override.jsx`

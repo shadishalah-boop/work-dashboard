@@ -51,13 +51,18 @@ any error:
     consent denied, or a **timeout** (retrying just burns another full timeout window) — the
     connector is *down*. Do **NOT** retry, do **NOT** try other server-name variants, do **NOT**
     make further Drive calls.
-  After a failed retry OR a deterministic error: write `drive.json` with `sourceOk:false`,
-  `error:"<server> connector unavailable: <first line of the error>"`, `files: []`, output
-  `✗`, and stop. A dead connector should cost **one or two** calls, not a spiral.
+  After a failed retry OR a deterministic error: write the failure JSON
+  `{"sourceOk": false, "error": "<server> connector unavailable: <first line of the error>",
+  "files": []}` to **BOTH** `<dataCacheDir>/drive-raw.json` **and** `<dataCacheDir>/drive.json`
+  (two Writes, same payload), output `✗`, and stop. `drive-raw.json` is the file the
+  orchestrator's `wait-and-merge.sh` polls for — writing only `drive.json` leaves the merge
+  waiting out its full timeout. The transform script passes the failure marker through
+  unchanged, and `drive.json` is the belt-and-braces copy in case the transform never runs.
+  A dead connector should cost **one or two** calls, not a spiral.
 
 1. Call `list_recent_files` **once** for files the user owned or edited in the **last 14 days**. **Cap at 25 results** — do NOT page for more, and do **NOT** call `get_file_metadata`. The list endpoint returns enough (`id`, `name`, `mimeType`, `modifiedTime`, `owners`). The single call takes 30–45s and is the dominant cost — more calls is the wrong move.
 2. **Write the raw response verbatim** to `<dataCacheDir>/drive-raw.json` using the **Write tool**. Preserve every field — especially `id`, `name`, `mimeType`, `modifiedTime`, and `owners` — for each file. A bare array `[ {...}, {...} ]` is fine, as is `{ "files": [...] }`.
-3. Output `✓` and stop. The orchestrator's `wait-and-merge.sh` then runs `drive-transform.py`, which reads `drive-raw.json`, applies all the mapping/dedup/cap/exclude rules below, and writes `drive.json`. (If your MCP fetch failed, instead Write `drive.json` directly with `sourceOk:false` per the failure rule and output `✗`.)
+3. Output `✓` and stop. The orchestrator's `wait-and-merge.sh` then runs `drive-transform.py`, which reads `drive-raw.json`, applies all the mapping/dedup/cap/exclude rules below, and writes `drive.json`. (If your MCP fetch failed, instead Write the `sourceOk:false` failure JSON to **both** `drive-raw.json` and `drive.json` per the failure rule and output `✗`.)
 
 You do **not** hand-build the JSON below, and you do **not** run the transform — the orchestrator does. It's documented here only so you can eyeball `drive.json` afterward. The script's mapping:
 
@@ -102,7 +107,7 @@ The script writes `<dataCacheDir>/drive.json`. Schema:
 - **Title truncation**: cap at 80 chars in the JSON; the dashboard truncates further for display.
 - **URL correctness**: wrong URLs break the voice "open" intent — verify the URL pattern matches the kind before writing.
 - **Cap/exclude/URL/timestamp logic is enforced by the transform script the orchestrator runs** — you don't reproduce it; just dump the raw response faithfully so the script has the fields it needs.
-- If the `list_recent_files` MCP call itself fails: Write `drive.json` directly with `"sourceOk": false`, `"error": "<reason>"`, `"files": []`, and output `✗`. (In this case there's no useful `drive-raw.json`, so the orchestrator's transform is a no-op and your `drive.json` stands.)
+- If the `list_recent_files` MCP call itself fails: Write the failure JSON `{"sourceOk": false, "error": "<reason>", "files": []}` to **both** `drive-raw.json` and `drive.json`, and output `✗`. (`drive-raw.json` unblocks the orchestrator's wait immediately; the transform detects the failure marker and passes it through, so your `drive.json` stands.)
 - Your only stdout is **exactly one character**: `✓` once you've written `drive-raw.json` successfully, or `✗` on MCP failure. No other text — no path, no counts, no debug. The orchestrator runs the transform and reads the JSON via `build-overrides.py`.
 
 ## Why JSON (vs regenerating drive-index.jsx directly)
